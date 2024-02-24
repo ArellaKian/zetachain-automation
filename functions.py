@@ -26,12 +26,18 @@ from config import (
 def current_time():
     cur_time = time.strftime("%Y-%m-%d %H:%M:%S")[:-3]
     return cur_time
-
+def get_ip() -> str:
+    get_ip_url = 'https://dvapi.doveproxy.net/cmapi.php?rq=distribute&user=Jason01&token=eWNIREhpMGpyMi9oekJWUkh6Q2RnQT09&auth=1&geo=all&city=all&agreement=1&timeout=5&num=1&rtype=1'
+    with requests.get(get_ip_url) as response:
+        response_text = response.text
+    # proxy 格式 : 'http://user:password@ip:port' or 'http://ip:port'
+    splits = response_text.replace('\n', '').replace('\r', '').split(':')
+    return 'http://'+splits[2]+':'+splits[3]+'@'+splits[0]+':'+splits[1]
 
 def create_web3_with_proxy(rpc_endpoint, proxy=None):
     if proxy is None:
         return Web3(Web3.HTTPProvider(rpc_endpoint))
-
+    proxy = get_ip()
     proxy_type = proxy.split(":")[0]
     request_kwargs = {"proxies": {proxy_type: proxy}}
 
@@ -40,6 +46,7 @@ def create_web3_with_proxy(rpc_endpoint, proxy=None):
 
 def create_proxy(proxy=None):
     if proxy is not None:
+        proxy = get_ip()
         proxy_type = proxy.split(":")[0]
         return {proxy_type: proxy}
     return None
