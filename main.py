@@ -1,3 +1,4 @@
+import random
 import time
 from web3 import Web3
 from functions import (
@@ -30,7 +31,7 @@ with open("keys.txt", "r") as f:
 
 with open("proxies.txt", "r") as p:
     for proxy in p:
-        proxy = proxy.strip()
+        proxy = f'socks5://{proxy.strip()}'
         proxies.append(proxy)
 
 
@@ -76,6 +77,7 @@ if __name__ == "__main__":
     }
 
     for key, proxy in zip(private_keys, proxies):
+        time.sleep(round(random.uniform(2, 5), 1))
         try:
             if choice in transaction_functions:
                 if proxy:

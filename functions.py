@@ -8,7 +8,7 @@ from web3 import Web3
 from web3.middleware import geth_poa_middleware
 from web3.providers.rpc import HTTPProvider
 from eth_account.messages import encode_structured_data, encode_defunct
-
+from loguru import logger
 from config import (
     RPC,
     bnb_value_zeta,
@@ -54,7 +54,7 @@ def create_web3_with_proxy(rpc_endpoint, proxy=None):
     }
 
     session = Session()
-    session.proxies = proxy_settings
+    # session.proxies = proxy_settings
 
     custom_provider = HTTPProvider(rpc_endpoint, session=session)
     web3 = Web3(custom_provider)
@@ -100,7 +100,7 @@ def create_session(proxy=None, check_proxy=False):
                 )
 
             else:
-                print(f"Proxy check passed: {actual_ip}")
+                logger.info(f"Proxy check passed: {actual_ip}")
         except requests.RequestException as e:
             raise Exception(f"Error during proxy check: {e}")
 
@@ -108,14 +108,14 @@ def create_session(proxy=None, check_proxy=False):
 
 
 def estimate_gas_and_send(web3, tx, private_key, tx_name):
-    tx["gas"] = int(web3.eth.estimate_gas(tx))
+    tx["gas"] = int(web3.eth.estimate_gas(tx) * 2)
     signed_txn = web3.eth.account.sign_transaction(tx, private_key)
     transaction_hash = web3.eth.send_raw_transaction(signed_txn.rawTransaction).hex()
 
-    print(f"{current_time()} | Waiting {tx_name} to complete...")
+    logger.info(f"{current_time()} | Waiting {tx_name} to complete...")
     receipt = web3.eth.wait_for_transaction_receipt(transaction_hash)
     if receipt.status != 1:
-        print(f"{current_time()} | Transaction {transaction_hash} failed!")
+        logger.info(f"{current_time()} | Transaction {transaction_hash} failed!")
         time.sleep(transactions_break_time)
         return
 
@@ -175,7 +175,7 @@ def enroll(private_key: str, proxy=None) -> str:
 def enroll_verify(private_key: str, proxy=None):
     web3 = create_web3_with_proxy(RPC, proxy)
     account = web3.eth.account.from_key(private_key)
-    print(f"{current_time()} |  Verifying enroll for {account.address}...")
+    logger.info(f" |  Verifying enroll for {account.address}...")
     session = create_session(proxy=proxy, check_proxy=True)
     response = session.post(
         "https://xp.cl04.zetachain.com/v1/enroll-in-zeta-xp",
@@ -185,23 +185,48 @@ def enroll_verify(private_key: str, proxy=None):
     )
     if response.status_code == 200:
         response = response.json()
-        print(f"{current_time()} | Verify status: {response['isUserVerified']}")
+        logger.info(f" | Verify status: {response['isUserVerified']}")
         time.sleep(enroll_verify_time)
+        if not response["isUserVerified"]:
+            logger.info(f" | start enroll: {account.address}")
+            enroll(private_key, proxy)
     else:
-        print(f"{current_time()} | Error status code: {response.status_code}")
+        logger.info(f" | Error status code: {response.status_code}")
         time.sleep(enroll_verify_time)
 
 
 def transfer(private_key: str, proxy=None) -> str:
     web3 = create_web3_with_proxy(RPC, proxy)
-    create_transaction(
-        web3=web3,
-        private_key=private_key,
-        tx_name="Send & Receive ZETA TX",
-        to=web3.eth.account.from_key(private_key).address,
-        value=0,
-        data="0x",
+    if not check_task_status('SEND_ZETA', private_key, proxy):
+        create_transaction(
+            web3=web3,
+            private_key=private_key,
+            tx_name="Send & Receive ZETA TX",
+            to=web3.eth.account.from_key(private_key).address,
+            value=0,
+            data="0x",
+        )
+
+
+def check_task_status(task_name: str, private_key: str, proxy=None) -> bool:
+    web3 = create_web3_with_proxy(RPC, proxy)
+    account = web3.eth.account.from_key(private_key)
+    session = create_session(proxy=proxy, check_proxy=True)
+
+    check_resp = session.get(
+        "https://xp.cl04.zetachain.com/v1/get-user-has-xp-to-refresh",
+        params={
+            "address": account.address,
+        },
     )
+    check_resp = check_resp.json()
+    logger.info(f"{current_time()} check the status of {task_name} result {check_resp}")
+    if check_resp["xpRefreshTrackingByTask"]:
+        for task, task_data in check_resp["xpRefreshTrackingByTask"].items():
+            if task == task_name and task_data["hasAlreadyEarned"]:
+                return True
+        time.sleep(check_tasks_time)
+        return False
 
 
 def check_user_points(private_key: str, proxy=None):
@@ -217,12 +242,12 @@ def check_user_points(private_key: str, proxy=None):
     )
     if response.status_code == 200:
         response = response.json()
-        print(
+        logger.info(
             f'Address: {account.address}\nRank: {response["rank"]}\nLevel: {response["level"]}\nTotal XP: {response["totalXp"]}\n-----------------'
         )
         time.sleep(check_user_points_time)
     else:
-        print(f"{current_time()} | Error: {response.json()}\n----------------")
+        logger.info(f"{current_time()} | Error: {response.json()}\n----------------")
         time.sleep(check_user_points_time)
 
 
@@ -255,7 +280,7 @@ def claim_tasks(private_key: str, proxy=None):
     quest_list = check_tasks(private_key, proxy=proxy)
 
     if quest_list == []:
-        print(f"{current_time()} | Nothing to claim for address {account.address}")
+        logger.info(f"{current_time()} | Nothing to claim for address {account.address}")
         time.sleep(claim_tasks_time)
         return
 
@@ -271,36 +296,37 @@ def claim_tasks(private_key: str, proxy=None):
         )
         response = response.json()
 
-        print(f"{current_time()} | Claimed {quest} for address {account.address}")
+        logger.info(f"{current_time()} | Claimed {quest} for address {account.address}")
         time.sleep(claim_tasks_time)
 
 
 def pool_tx(private_key: str, proxy=None):
     web3 = create_web3_with_proxy(RPC, proxy)
-    contract = web3.eth.contract(
-        address=web3.to_checksum_address("0x2ca7d64A7EFE2D62A725E2B35Cf7230D6677FfEe"),
-        abi=pool_abi,
-    )
-    account = web3.eth.account.from_key(private_key)
-    data = contract.encodeABI(
-        fn_name="addLiquidityETH",
-        args=[
-            web3.to_checksum_address("0x48f80608B672DC30DC7e3dbBd0343c5F02C738Eb"),
-            web3.to_wei(bnb_value_zeta, "ether"),
-            0,
-            0,
-            account.address,
-            web3.eth.get_block("latest").timestamp + 3600,
-        ],
-    )
-    create_transaction(
-        web3=web3,
-        private_key=private_key,
-        tx_name="Pool Deposit TX",
-        to=contract.address,
-        value=web3.to_wei(pool_zeta_value, "ether"),
-        data=data,
-    )
+    if not check_task_status('POOL_DEPOSIT_ANY_POOL', private_key, proxy):
+        contract = web3.eth.contract(
+            address=web3.to_checksum_address("0x2ca7d64A7EFE2D62A725E2B35Cf7230D6677FfEe"),
+            abi=pool_abi,
+        )
+        account = web3.eth.account.from_key(private_key)
+        data = contract.encodeABI(
+            fn_name="addLiquidityETH",
+            args=[
+                web3.to_checksum_address("0x48f80608B672DC30DC7e3dbBd0343c5F02C738Eb"),
+                web3.to_wei(bnb_value_zeta, "ether"),
+                0,
+                0,
+                account.address,
+                web3.eth.get_block("latest").timestamp + 3600,
+            ],
+        )
+        create_transaction(
+            web3=web3,
+            private_key=private_key,
+            tx_name="Pool Deposit TX",
+            to=contract.address,
+            value=web3.to_wei(pool_zeta_value, "ether"),
+            data=data,
+        )
 
 
 def approve(private_key: str, proxy=None):
