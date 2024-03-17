@@ -77,7 +77,7 @@ if __name__ == "__main__":
     }
 
     for key, proxy in zip(private_keys, proxies):
-        time.sleep(round(random.uniform(2, 5), 1))
+        time.sleep(round(random.uniform(2, 3), 1))
         try:
             if choice in transaction_functions:
                 if proxy:

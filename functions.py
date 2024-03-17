@@ -353,6 +353,8 @@ def approve(private_key: str, proxy=None):
 
 
 def btc_quest(private_key: str, proxy=None):
+    if check_task_status('RECEIVE_BTC', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     account = web3.eth.account.from_key(private_key)
     contract_for_encoding = web3.eth.contract(
