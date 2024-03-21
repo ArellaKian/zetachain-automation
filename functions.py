@@ -54,7 +54,7 @@ def create_web3_with_proxy(rpc_endpoint, proxy=None):
     }
 
     session = Session()
-    # session.proxies = proxy_settings
+    session.proxies = proxy_settings
 
     custom_provider = HTTPProvider(rpc_endpoint, session=session)
     web3 = Web3(custom_provider)
@@ -108,7 +108,7 @@ def create_session(proxy=None, check_proxy=False):
 
 
 def estimate_gas_and_send(web3, tx, private_key, tx_name):
-    tx["gas"] = int(web3.eth.estimate_gas(tx) * 2)
+    tx["gas"] = int(web3.eth.estimate_gas(tx) * 1.3)
     signed_txn = web3.eth.account.sign_transaction(tx, private_key)
     transaction_hash = web3.eth.send_raw_transaction(signed_txn.rawTransaction).hex()
 

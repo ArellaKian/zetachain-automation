@@ -31,7 +31,7 @@ with open("keys.txt", "r") as f:
 
 with open("proxies.txt", "r") as p:
     for proxy in p:
-        proxy = f'socks5://{proxy.strip()}'
+        proxy = f'http://{proxy.strip()}'
         proxies.append(proxy)
 
 
