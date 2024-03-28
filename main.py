@@ -17,6 +17,7 @@ from functions import (
     range_protocol,
     mint_badge,
     zetaswap_quest,
+    nativex_finance
 )
 
 RPC = "https://zetachain-mainnet-archive.allthatnode.com:8545"
@@ -52,8 +53,9 @@ if __name__ == "__main__":
             "\n11: Accumulated Finance quest| +2500 XP"
             "\n12: Mint a badge on Ultiverse| +2500 XP"
             "\n13: Zetaswap wZETA->ETH.ETH  | +2500 XP"
-            "\n14: Check total XP|Rank|Level"
-            "\n15: Claim all available tasks"
+            "\n14: NativeX ZETA->BTC.BTC    | +2500 XP"
+            "\n15: Check total XP|Rank|Level"
+            "\n16: Claim all available tasks"
             "\n----------------------"
             "\nChoice: "
         )
@@ -72,8 +74,9 @@ if __name__ == "__main__":
         11: accumulated_finance,
         12: mint_badge,
         13: zetaswap_quest,
-        14: check_user_points,
-        15: claim_tasks,
+        14: nativex_finance,
+        15: check_user_points,
+        16: claim_tasks,
     }
 
     for key, proxy in zip(private_keys, proxies):
@@ -89,6 +92,6 @@ if __name__ == "__main__":
         except Exception as e:
             error_message = f"Error for address: {web3.eth.account.from_key(key).address} | Error: {e}\n"
             print(error_message)
-            time.sleep(3)
+            time.sleep(5)
             with open("fail_logs.txt", "a") as log_file:
                 log_file.write(error_message + f" ")

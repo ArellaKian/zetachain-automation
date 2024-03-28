@@ -26,7 +26,8 @@ from config import (
     acc_finance_zeta,
     range_protocol_zeta,
     zetaswap_zeta,
-    badge_id
+    badge_id,
+    nativex_zeta
 )
 from contracts_abi import (
     pool_abi,
@@ -38,12 +39,12 @@ from contracts_abi import (
     rangeprotocol_pool_abi,
     badge_mint_abi,
 )
+proxy_url = "http://k87gld96:6VgAGOiNreQY5556@146.190.3.79:31112"
 
 
 def current_time():
     cur_time = time.strftime("%Y-%m-%d %H:%M:%S")[:-3]
     return cur_time
-
 
 def create_web3_with_proxy(rpc_endpoint, proxy=None):
     if proxy is None:
@@ -91,19 +92,19 @@ def create_session(proxy=None, check_proxy=False):
     if proxy:
         session.proxies = {"http": proxy, "https": proxy}
 
-    if check_proxy and proxy:
-        try:
-            proxy_ip = extract_ip_from_proxy(proxy)
-            actual_ip = session.get("https://api.ipify.org").text
-            if actual_ip != proxy_ip:
-                raise Exception(
-                    f"Error: Proxy IP ({proxy_ip}) does not match actual IP ({actual_ip}). Stopping script."
-                )
-
-            else:
-                logger.info(f"Proxy check passed: {actual_ip}")
-        except requests.RequestException as e:
-            raise Exception(f"Error during proxy check: {e}")
+    # if check_proxy and proxy:
+    #     try:
+    #         proxy_ip = extract_ip_from_proxy(proxy)
+    #         actual_ip = session.get("https://api.ipify.org").text
+    #         if actual_ip != proxy_ip:
+    #             raise Exception(
+    #                 f"Error: Proxy IP ({proxy_ip}) does not match actual IP ({actual_ip}). Stopping script."
+    #             )
+    #
+    #         else:
+    #             logger.info(f"Proxy check passed: {actual_ip}")
+    #     except requests.RequestException as e:
+    #         raise Exception(f"Error during proxy check: {e}")
 
     return session
 
@@ -192,8 +193,10 @@ def enroll_verify(private_key: str, proxy=None):
             logger.info(f" | start enroll: {account.address}")
             enroll(private_key, proxy)
     else:
-        logger.info(f" | Error status code: {response.status_code}")
+        logger.info(f" | Error status code: {response.status_code}, try again with random proxy")
+        enroll_verify(private_key,proxy=proxy_url)
         time.sleep(enroll_verify_time)
+        return
 
 
 def transfer(private_key: str, proxy=None) -> str:
@@ -220,14 +223,18 @@ def check_task_status(task_name: str, private_key: str, proxy=None) -> bool:
             "address": account.address,
         },
     )
-    check_resp = check_resp.json()
-    logger.info(f"{current_time()} check the status of {task_name} result {check_resp}")
-    if check_resp["xpRefreshTrackingByTask"]:
-        for task, task_data in check_resp["xpRefreshTrackingByTask"].items():
-            if task == task_name and task_data["hasAlreadyEarned"]:
-                return True
-        time.sleep(check_tasks_time)
-        return False
+    if check_resp.status_code == 200:
+        check_resp = check_resp.json()
+        logger.info(f"{current_time()} check the status of {task_name} result {check_resp}")
+        if check_resp["xpRefreshTrackingByTask"]:
+            for task, task_data in check_resp["xpRefreshTrackingByTask"].items():
+                if task == task_name and task_data["hasAlreadyEarned"]:
+                    return True
+            time.sleep(check_tasks_time)
+            return False
+    else:
+        check_task_status(task_name, private_key, proxy_url)
+
 
 
 def check_user_points(private_key: str, proxy=None):
@@ -248,6 +255,7 @@ def check_user_points(private_key: str, proxy=None):
         )
         time.sleep(check_user_points_time)
     else:
+        check_user_points(private_key, proxy_url)
         logger.info(f"{current_time()} | Error: {response.json()}\n----------------")
         time.sleep(check_user_points_time)
 
@@ -264,11 +272,15 @@ def check_tasks(private_key: str, proxy=None):
         },
     )
     quests_to_refresh = []
-    check_resp = check_resp.json()
-    if check_resp["totalAmountToRefresh"] > 0:
-        for task, task_data in check_resp["xpRefreshTrackingByTask"].items():
-            if task_data["hasXpToRefresh"]:
-                quests_to_refresh.append(task)
+    if check_resp.status_code == 403:
+        logger.warning(f"[{account.address}] IP {proxy} Access denied, use random IP")
+        check_tasks(private_key, proxy_url)
+    else:
+        check_resp = check_resp.json()
+        if check_resp["totalAmountToRefresh"] > 0:
+            for task, task_data in check_resp["xpRefreshTrackingByTask"].items():
+                if task_data["hasXpToRefresh"]:
+                    quests_to_refresh.append(task)
     time.sleep(check_tasks_time)
 
     return quests_to_refresh
@@ -295,10 +307,11 @@ def claim_tasks(private_key: str, proxy=None):
             "https://xp.cl04.zetachain.com/v1/xp/claim-task",
             json=claim_data,
         )
-        response = response.json()
-
-        logger.info(f"{current_time()} | Claimed {quest} for address {account.address}")
-        time.sleep(claim_tasks_time)
+        if response.status_code == 200:
+            logger.info(f"{current_time()} | Claimed {quest} for address {account.address}")
+            time.sleep(claim_tasks_time)
+        else:
+            claim_tasks(private_key, proxy_url)
 
 
 def pool_tx(private_key: str, proxy=None):
@@ -392,6 +405,8 @@ def btc_quest(private_key: str, proxy=None):
 
 
 def eth_quest(private_key: str, proxy=None):
+    if check_task_status('RECEIVE_ETH', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     account = web3.eth.account.from_key(private_key)
     contract_for_encoding = web3.eth.contract(
@@ -428,6 +443,8 @@ def eth_quest(private_key: str, proxy=None):
 
 
 def bsc_izumi_quest(private_key: str, proxy=None):
+    if check_task_status('RECEIVE_BNB', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     account = web3.eth.account.from_key(private_key)
     contract_for_encoding = web3.eth.contract(
@@ -464,6 +481,8 @@ def bsc_izumi_quest(private_key: str, proxy=None):
 
 
 def eddy_finance(private_key: str, proxy=None):
+    if check_task_status('EDDY_FINANCE_DEPOSIT', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     create_transaction(
         web3=web3,
@@ -476,6 +495,8 @@ def eddy_finance(private_key: str, proxy=None):
 
 
 def accumulated_finance(private_key: str, proxy=None):
+    if check_task_status('ACCUMULATED_FINANCE_DEPOSIT', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     account = web3.eth.account.from_key(private_key)
     accfinance_contract = web3.eth.contract(
@@ -524,6 +545,8 @@ def accumulated_finance(private_key: str, proxy=None):
 
 
 def range_protocol(private_key: str, proxy=None):
+    if check_task_status('RANGE_PROTOCOL_VAULT_TRANSACTION', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     session = create_session(proxy=proxy, check_proxy=True)
     json_data = {
@@ -604,8 +627,9 @@ def range_protocol(private_key: str, proxy=None):
         data=data,
     )
 
-
 def mint_badge(private_key: str, proxy=None):
+    if check_task_status('ULTIVERSE_MINT_BADGE', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     account = web3.eth.account.from_key(private_key)
     session = create_session(proxy=proxy, check_proxy=True)
@@ -676,6 +700,8 @@ def mint_badge(private_key: str, proxy=None):
 
 
 def zetaswap_quest(private_key: str, proxy=None):
+    if check_task_status('ZETA_SWAP_SWAP', private_key, proxy):
+        return
     web3 = create_web3_with_proxy(RPC, proxy)
     account = web3.eth.account.from_key(private_key)
     session = create_session(proxy=proxy, check_proxy=True)
@@ -722,5 +748,39 @@ def zetaswap_quest(private_key: str, proxy=None):
         tx_name="wZETA -> ETH.ETH SWAP",
         to=response["txRequest"]["target"],
         value=0,
+        data=response["txRequest"]["calldata"],
+    )
+
+def nativex_finance(private_key: str, proxy=None):
+    if check_task_status('NATIVEX_SWAP', private_key, proxy):
+        return
+    web3 = create_web3_with_proxy(RPC, proxy)
+    account = web3.eth.account.from_key(private_key)
+    session = create_session(proxy=proxy, check_proxy=True)
+    session.headers.update(
+        {
+            "apikey": "JWL73SF2K899AMPFRHZV",
+            "accept": "application/json, text/plain, */*",
+        }
+    )
+    params = {
+        "src_chain": "zetachain",
+        "dst_chain": "zetachain",
+        "token_in": "0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "token_out": "0x13a0c5930c028511dc02665e7285134b6d11a5f4",
+        "amount": nativex_zeta,
+        "address": account.address,
+        "slippage": "0.5",
+    }
+    response = session.get(
+        "https://newapi.native.org/swap-api/v1/firm-quote",
+        params=params,
+    ).json()
+    create_transaction(
+        web3=web3,
+        private_key=private_key,
+        tx_name="NativeX Finance: ZETA->BTC.BTC",
+        to=response["txRequest"]["target"],
+        value=web3.to_wei(nativex_zeta, "ether"),
         data=response["txRequest"]["calldata"],
     )
